@@ -1,46 +1,3 @@
-#lang racket
-
-(require "mk.rkt")
-
-(provide (all-defined-out))
-(require test-engine/racket-tests)
-
-(define listo
-  (lambda (l)
-    (conde
-     ((== l '()))
-     ((fresh (f r)
-        (== `(,f . ,r) l))))))
-
-(check-expect
- (run* (q) (listo '()))
- '(_.0))
-
-(check-expect
- (run* (q) (listo '(a b c)))
- '(_.0))
-
-(define varo*
-  (lambda (x out)
-    (== `(variable ,x) out)))
-
-(check-expect
-  (run* (q) (varo* 'x q))
-  '((variable x)))
-
-(check-expect
-  (run* (q) (varo* q '(variable x)))
-  '(x))
-
-(define varo
-  (lambda (out)
-    (fresh (x)
-      (varo* x out))))
-
-(check-expect
-  (run* (q) (varo q))
-  '((variable _.0)))
-
 (define not-varo
   (lambda (out)
     (conde
@@ -53,6 +10,40 @@
 
 (check-expect
   (run* (q) (not-varo '(variable x)))
+(ns mimosa.mimosa
+  (:refer-clojure :exclude [==]) ; Explicit exclusion for core.logic
+  (:require [clojure.core.logic :refer :all]))
+
+
+(defn listo [l]
+  (conde
+   [(== l '())]
+   [(fresh [f r]
+      (conso f r l))]))
+
+(deftest test-listo
+  (is (= (run* [q] (listo '()))
+         '(_0)))
+  (is (= (run* [q] (listo '(a b c)))
+         '(_0))))
+
+(defn varo* [x out]
+  (== [:variable x] out))
+
+(deftest test-varo*
+  (is (= (run* [q] (varo* 'x q))
+         '([:variable x])))
+  (is (= (run* [q] (varo* q [:variable 'x]))
+         '(x))))
+
+(defn varo [out]
+  (fresh [x]
+    (varo* x out)))
+
+(deftest test-varo
+  (is (= (run* [q] (varo q))
+         '([:variable _0]))))
+
   '())
 
 (define paramo*
