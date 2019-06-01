@@ -1,18 +1,7 @@
-(define not-varo
-  (lambda (out)
-    (conde
-      ((symbolo out))
-      ((numbero out))
-      ((== '() out))
-      ((fresh (h r)
-         (== `(,h . ,r) out)
-         (=/= h 'variable))))))
-
-(check-expect
-  (run* (q) (not-varo '(variable x)))
 (ns mimosa.mimosa
   (:refer-clojure :exclude [==]) ; Explicit exclusion for core.logic
-  (:require [clojure.core.logic :refer :all]))
+  (:require [clojure.core.logic :refer :all :exclude [is appendo]]
+            [clojure.test :refer :all]))
 
 
 (defn listo [l]
@@ -44,231 +33,212 @@
   (is (= (run* [q] (varo q))
          '([:variable _0]))))
 
-  '())
+(defn symbolo [v]
+  (when (symbol? v) succeed))
 
-(define paramo*
-  (lambda (x out)
-    (== `(param ,x) out)))
+(defn numbero [v]
+  (when symbol? v) succeed)
 
-(check-expect
-  (run* (q) (paramo* 'x q))
-  '((param x)))
+(defn not-varo [out]
+  (conde
+    [(symbolo out)]
+    [(numbero out)]
+    [(== '() out)]
+    [(fresh [h r]
+       (== [h r] out)
+       (!= h :variable))]))
 
-(check-expect
-  (run* (q) (paramo* q '(param x)))
-  '(x))
+(deftest test-not-varo
+  (is (= (run* [q] (not-varo [:variable 'x]))
+         '())))
 
-(define paramo
-  (lambda (out)
-    (fresh (x)
-      (paramo* x out))))
+(defn paramo* [x out]
+    (== [:param x] out))
 
-(check-expect
-  (run* (q) (paramo q))
-  '((param _.0)))
+(deftest test-paramo*
+  (is (= (run* [q] (paramo* 'x q))
+         '([:param x])))
+  (is (= (run* [q] (paramo* q [:param 'x]))
+         '(x))))
 
-(define not-paramo
-  (lambda (out)
+(defn paramo [out]
+  (fresh [x]
+    (paramo* x out)))
+
+(deftest test-paramo
+  (is (= (run* [q] (paramo q))
+         '([:param _0]))))
+
+(defn not-paramo [out]
+  (conde
+    [(symbolo out)]
+    [(numbero out)]
+    [(== '() out)]
+    [(fresh [h r]
+       (== [h r] out)
+       (!= h :param))]))
+
+(deftest test-not-paramo
+  (is (= (run* [q] (not-paramo [:param 'x]))
+         '())))
+
+(defn lookupo [u s out]
+  (fresh [fkey fvalue rest]
+    (conso [fkey fvalue] rest s)
     (conde
-      ((symbolo out))
-      ((numbero out))
-      ((== '() out))
-      ((fresh (h r)
-         (== `(,h . ,r) out)
-         (=/= h 'param))))))
+      [(== [u out] [fkey fvalue])]
+      [(!= u fkey)
+       (lookupo u rest out)])))
 
-(check-expect
-  (run* (q) (not-paramo '(param x)))
-  '())
+(deftest test-lookupo
+  (is (= (run* [q] (lookupo 'x '([x 1] [x 2]) q))
+         '(1)))
+  (is (= (run 1 [q] (lookupo 'x q 1))
+         '(([x 1] . _0)))))
 
-(define ext-so
-  (lambda (x v s out)
-    (== `((,x ,v) . ,s) out)))
+(defn not-in-assoco [u s]
+  (conde
+    [(== '() s)]
+    [(fresh [fkey fvalue rest]
+       (conso [fkey fvalue] rest s)
+       (!= fkey u)
+       (not-in-assoco u rest))]))
 
-(check-expect
-  (run* (q) (ext-so 'x 1 '() q))
-  '(((x 1))))
+(deftest test-not-in-assoco
+  (is (= (run* [q] (not-in-assoco 'x '([x 1])))
+         '())))
 
-(check-expect
-  (run* (q) (fresh (x y)
-              (ext-so x y '() '((x 1)))
-              (== `(,x ,y) q)))
-  '((x 1)))
+(defn lookup-failbacko [u s out]
+  (conde
+    [(lookupo u s out)]
+    [(not-in-assoco u s)
+     (== u out)]))
 
-(define lookupo
-  (lambda (u s out)
-    (fresh (fkey fvalue rest)
-      (== `((,fkey ,fvalue) . ,rest) s)
-      (conde
-        ((== u fkey)
-         (== out fvalue))
-        ((=/= u fkey)
-         (lookupo u rest out))))))
+(defn walko [u s out]
+  (conde
+    [(varo u)
+     (conde
+       [(fresh [val]
+          (lookupo u s val)
+          (walko val s out))]
+       [(not-in-assoco u s)
+        (== out u)])]
+    [(not-varo u)
+     (== out u)]))
 
-(define lookup-failbacko
-  (lambda (u s out)
+(deftest test-walko
+  (is (= (run* [q] (walko '[:variable x]
+                          '(([:variable x] [:variable y])
+                            ([:variable y] 1))
+                          q))
+         '(1))))
+
+(declare unifyo)
+(defn unifyo* [u v s out]
+  (fresh [uw vw]
+    (walko u s uw)
+    (walko v s vw)
     (conde
-      ((lookupo u s out))
-      ((not-in-assoco u s)
-       (== u out)))))
-
-(check-expect
-  (run* (q) (lookupo 'x '((x 1) (x 2)) q))
-  '(1))
-
-(check-expect
-  (run 1 (q) (lookupo 'x q 1))
-  '(((x 1) . _.0)))
-
-(define not-in-assoco
-  (lambda (u s)
-    (conde
-      ((== '() s))
-      ((fresh (fkey fvalue rest)
-         (== `((,fkey ,fvalue) . ,rest) s)
-         (=/= fkey u)
-         (not-in-assoco u rest))))))
-
-(check-expect
-  (run* (q) (not-in-assoco 'x '((x 1))))
-  '())
-
-(define walko
-  (lambda (u s out)
-    (conde
-      ((varo u)
+      [(== uw vw)
+       (== s out)]
+      [(!= uw vw)
        (conde
-         ((fresh (val)
-            (lookupo u s val)
-            (walko val s out)))
-         ((not-in-assoco u s)
-          (== out u))))
-      ((not-varo u)
-       (== out u)))))
+         [(varo uw)
+          (conso [uw vw] s out)]
+         [(not-varo uw)
+          (varo vw)
+          (conso [vw uw] s out)]
+         [(not-varo uw)
+          (not-varo vw)
+          (conde
+            [(conde
+               [(numbero uw)] [(numbero vw)]
+               [(symbolo uw)] [(symbolo vw)])
+             (== out fail)]
+            [(fresh [uwf uwr vwf vwr tmps]
+              (== [uwf uwr] uw)
+              (== [vwf vwr] vw)
+              (unifyo uwf vwf s tmps)
+              (unifyo uwr vwr tmps out))])])])))
 
-(check-expect
-  (run* (q) (walko '(variable x) '(((variable x) (variable y))
-                                   ((variable y) 1)) q))
-  '(1))
+(defn unifyo [u v s out]
+  (conde
+    [(== s fail) (== out fail)]
+    [(!= s fail) (unifyo* u v s out)]))
 
-(define unifyo*
-  (lambda (u v s out)
-    (fresh (uw vw)
-      (walko u s uw)
-      (walko v s vw)
-      (conde
-        ((== uw vw)
-         (== s out))
-        ((=/= uw vw)
-         (conde
-           ((varo uw)
-            (ext-so uw vw s out))
-           ((not-varo uw)
-            (varo vw)
-            (ext-so vw uw s out))
-           ((not-varo uw)
-            (not-varo vw)
-            (conde
-              ((conde
-                 ((numbero uw)) ((numbero vw))
-                 ((symbolo uw)) ((symbolo vw)))
-               (== out #f))
-              ((fresh (uwf uwr vwf vwr tmps)
-                (== `(,uwf . ,uwr) uw)
-                (== `(,vwf . ,vwr) vw)
-                (unifyo uwf vwf s tmps)
-                (unifyo uwr vwr tmps out)))))))))))
+(deftest test-unifyo
+  (is (= (run* [q] (unifyo [:variable 'x] 1 '() q))
+         '((([:variable x] 1)))))
+  (is (= (run* [q] (unifyo [:variable 'x] [:variable 'y]
+                           '([[:variable x] 1] [[:variable y] 1])
+                           q))
+         '(([[:variable x] 1] [[:variable y] 1]))))
+  (is (= (run* [q] (unifyo [:variable 'x] [:variable 'y] '() q))
+         '(([[:variable x] [:variable y]])))))
 
-(define unifyo
-  (lambda (u v s out)
-    (conde
-      ((== s #f) (== out #f))
-      ((=/= s #f) (unifyo* u v s out)))))
+(defn zipo [a b out]
+  (conde
+    [(== '() a) (== '() b) (== '() out)]
+    [(fresh [af ar bf br outf outr]
+       (conso af ar a)
+       (conso bf br b)
+       (conso outf outr out)
+       (== [af bf] outf)
+       (zipo ar br outr))]))
 
-(check-expect
-  (run* (q) (unifyo '(variable x) 1 '() q))
-  '((((variable x) 1))))
+(deftest test-zipo
+  (is (= (run* [q] (zipo '(a b c) '(1 2 3) q))
+         '(([a 1] [b 2] [c 3])))))
 
-(check-expect
-  (run* (q) (unifyo '(variable x) '(variable y)
-                    '(((variable x) 1) ((variable y) 1))
-                    q))
-  '((((variable x) 1) ((variable y) 1))))
+(defn appendo [a b out]
+  (conde
+    [(== '() a) (== b out)]
+    [(fresh [af ar outf outr]
+       (== [af ar] a)
+       (== [outf outr] out)
+       (== af outf)
+       (appendo ar b outr))]))
 
-(check-expect
-  (run* (q) (unifyo '(variable x) '(variable y) '() q))
-  '((((variable x) (variable y)))))
+(deftest test-appendo
+  (is (= (run* [q] (appendo '(a b c) '(1 2 3) q))
+         '((a b c 1 2 3)))))
 
-(define zipo
-  (lambda (a b out)
-    (conde
-      ((== '() a) (== '() b) (== '() out))
-      ((fresh (af ar bf br outf outr)
-         (== `(,af . ,ar) a)
-         (== `(,bf . ,br) b)
-         (== `(,outf . ,outr) out)
-         (== `(,af ,bf) outf)
-         (zipo ar br outr))))))
+(defn patterno [vars predicate out]
+    (== [:pattern vars predicate] out))
 
-(check-expect
-  (run* (q) (zipo '(a b c) '(1 2 3) q))
-  '(((a 1) (b 2) (c 3))))
+(deftest test-patterno
+  (is (= (run* [q] (patterno '([:param x]) '(== [:param x] 1) q))
+         '([:pattern ([:param 'x]) (== [:param x] 1)]))))
 
-(define appendo
-  (lambda (a b out)
-    (conde
-      ((== '() a) (== b out))
-      ((fresh (af ar outf outr)
-         (== `(,af . ,ar) a)
-         (== `(,outf . ,outr) out)
-         (== af outf)
-         (appendo ar b outr))))))
+(defn apply-atomo [value params out]
+  (conde
+   [(not-paramo value)
+    (== value out)]
+   [(paramo value)
+    (lookup-failbacko value params out)]))
 
-(check-expect
-  (run* (q) (appendo '(a b c) '(1 2 3) q))
-  '((a b c 1 2 3)))
+(defn apply-listo [value params out]
+  (conde
+   [(== '() value) (== '() out)]
+   [(fresh [f r outf outr]
+      (conso f r value)
+      (apply-atomo f params outf)
+      (apply-listo r params outr)
+      (conso outf outr out))]))
 
-(define patterno
-  (lambda (vars predicate out)
-    (== `(pattern ,vars ,predicate) out)))
+(defn apply-valueo [value params out]
+  (conde
+   [(paramo value) (apply-atomo value params out)]
+   [(not-paramo value) (symbolo value) (apply-atomo value params out)]
+   [(not-paramo value) (numbero value) (apply-atomo value params out)]
+   [(not-paramo value) (listo value) (apply-listo value params out)]))
 
-(check-expect
-  (run* (q) (patterno '((param x)) '(== (param x) 1) q))
-  '((pattern ((param x)) (== (param x) 1))))
+(deftest test-apply-valueo
+  (is (= (run* [q] (apply-valueo '[:param x] '(([:param x] [:variable x])) q))
+         '([:variable x])))
+  (is (= (run* [q] (apply-valueo 'x '() q))
+         '(x))))
 
-(define apply-listo
-  (lambda (value params out)
-    (conde
-     ((== '() value) (== '() out))
-     ((fresh (f r outf outr)
-        (== `(,f . ,r) value)
-        (apply-atomo f params outf)
-        (apply-listo r params outr)
-        (== `(,outf . ,outr) out))))))
-
-(define apply-atomo
-  (lambda (value params out)
-    (conde
-     ((not-paramo value)
-      (== value out))
-     ((paramo value)
-      (lookup-failbacko value params out)))))
-
-(define apply-valueo
-  (lambda (value params out)
-    (conde
-     ((paramo value) (apply-atomo value params out))
-     ((not-paramo value) (symbolo value) (apply-atomo value params out))
-     ((not-paramo value) (numbero value) (apply-atomo value params out))
-     ((not-paramo value) (listo value) (apply-listo value params out)))))
-
-(check-expect
-  (run* (q) (apply-valueo '(param x) '(((param x) (variable x))) q))
-  '((variable x)))
-
-(check-expect
-  (run* (q) (apply-valueo 'x '() q))
-  '(x))
 
 (define applyo
   (lambda (predicate pattern-assoc params fresh-next fresh-next-out out)
